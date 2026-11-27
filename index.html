@@ -24,7 +24,10 @@ button{cursor:pointer;font-weight:650}button.primary{background:#167db8;border-c
 button:disabled{opacity:.4;cursor:not-allowed}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 label{display:block;color:var(--muted);font-size:13px;margin:12px 0 6px}
 input[type=number],select{width:100%}
-input[type=range]{width:100%;padding:0;accent-color:var(--accent)}
+.setpoint-row{display:grid;grid-template-columns:48px minmax(90px,1fr) 48px auto;gap:8px;align-items:center}
+.setpoint-row button{padding:10px 8px;font-size:22px;line-height:1}
+.setpoint-row input{min-width:0;text-align:center;font-size:20px;font-weight:700}
+.setpoint-row .unit-value{white-space:nowrap;font-size:18px;font-weight:700}
 .value{font-size:20px;font-weight:700}
 .small{font-size:13px;color:var(--muted);line-height:1.5}
 .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
@@ -64,8 +67,13 @@ hr{border:0;border-top:1px solid var(--line);margin:15px 0}
 
   <section class="card">
     <div class="row"><b>Cài đặt</b><span class="small">Chỉ thay đổi khi máy đang dừng</span></div>
-    <label for="setpoint">Nhiệt độ mục tiêu</label>
-    <div class="row"><input id="setpoint" type="range" min="35" max="45" step="0.5" value="42"><span class="value" id="setpointVal">42.0°C</span></div>
+    <label for="setpoint">Nhiệt độ mục tiêu (35–45°C, bước 0,5°C)</label>
+    <div class="setpoint-row">
+      <button type="button" id="spDown" aria-label="Giảm nhiệt độ">−</button>
+      <input id="setpoint" type="number" min="35" max="45" step="0.5" value="42.0" inputmode="decimal">
+      <button type="button" id="spUp" aria-label="Tăng nhiệt độ">+</button>
+      <span class="unit-value">°C</span>
+    </div>
 
     <label for="mode">Chế độ hoạt động</label>
     <select id="mode">
@@ -130,7 +138,7 @@ function setConnected(on){
   $("bleState").textContent = on ? "Đã kết nối" : "Chưa kết nối";
   $("bleState").className = on ? "pill ok" : "pill";
   ["apply","resetFault","start","stop"].forEach(id => $(id).disabled = !on);
-  ["setpoint","mode","duration","kp","ki","kd"].forEach(id => $(id).disabled = !on || isRunning);
+  // Editing controls remain usable on iPhone. Saving is separately gated by BLE/run state.
 }
 async function writeCommand(command){
   if(!commandChar) throw new Error("Chưa kết nối BLE");
@@ -156,15 +164,13 @@ function updateStatus(o){
   $("start").disabled = !commandChar || isRunning || !!o.fault;
   $("stop").disabled = !commandChar || !isRunning;
   $("apply").disabled = !commandChar || isRunning;
-  ["setpoint","mode","duration","kp","ki","kd"].forEach(id=>{
-    $(id).disabled = !commandChar || isRunning;
-  });
+  // Do not disable the edit widgets based on a potentially stale status packet.
+  // The Apply handler and firmware both reject configuration writes while running.
   $("resetFault").disabled = !commandChar || !o.fault;
 }
 function updateSettings(o){
   if(!o || settingsDirty) return; // Do not overwrite values currently being edited.
-  $("setpoint").value = Number(o.setpoint);
-  $("setpointVal").textContent = Number(o.setpoint).toFixed(1)+"°C";
+  $("setpoint").value = Number(o.setpoint).toFixed(1);
   $("mode").value = o.mode;
   $("duration").value = String(o.durationHours);
   if(o.kp !== undefined) $("kp").value = Number(o.kp).toFixed(2);
@@ -239,8 +245,21 @@ function markSettingsDirty(){ settingsDirty = true; }
   $(id).addEventListener("input", markSettingsDirty);
   $(id).addEventListener("change", markSettingsDirty);
 });
-$("setpoint").addEventListener("input",e=>{
-  $("setpointVal").textContent=Number(e.target.value).toFixed(1)+"°C";
+function changeSetpoint(delta){
+  const el=$("setpoint");
+  let v=Number(el.value);
+  if(!Number.isFinite(v)) v=42;
+  v=Math.max(35,Math.min(45,Math.round((v+delta)*2)/2));
+  el.value=v.toFixed(1);
+  settingsDirty=true;
+}
+$("spDown").addEventListener("click",()=>changeSetpoint(-0.5));
+$("spUp").addEventListener("click",()=>changeSetpoint(0.5));
+$("setpoint").addEventListener("change",e=>{
+  let v=Number(e.target.value);
+  if(!Number.isFinite(v)) v=42;
+  v=Math.max(35,Math.min(45,Math.round(v*2)/2));
+  e.target.value=v.toFixed(1);
 });
 $("apply").addEventListener("click",async()=>{
   if(!commandChar) { say("Chưa kết nối BLE."); return; }
