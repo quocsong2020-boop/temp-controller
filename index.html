@@ -225,7 +225,17 @@ async function connect(){
 }
 
 $("connect").addEventListener("click", connect);
-$("setpoint").addEventListener("input",e=>$("setpointVal").textContent=Number(e.target.value).toFixed(1)+"°C");
+
+// Mark edits as pending so periodic BLE settings notifications do not
+// overwrite the user's unsaved slider/select/input changes.
+function markSettingsDirty(){ settingsDirty = true; }
+["setpoint","mode","duration","kp","ki","kd"].forEach(id=>{
+  $(id).addEventListener("input", markSettingsDirty);
+  $(id).addEventListener("change", markSettingsDirty);
+});
+$("setpoint").addEventListener("input",e=>{
+  $("setpointVal").textContent=Number(e.target.value).toFixed(1)+"°C";
+});
 $("apply").addEventListener("click",async()=>{
   try{
     await writeCommand("SETPOINT:"+Number($("setpoint").value).toFixed(1));
