@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101827">
+<title>Yogurt Controller</title>
+<style>
+:root{color-scheme:dark;--bg:#101827;--panel:#1b293b;--line:#30445e;--text:#edf4ff;--muted:#a8b8cc;--accent:#61c4ff;--green:#49d49a;--red:#ff7777}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:720px;margin:auto;padding:18px 14px 36px}
+.topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+h1{font-size:24px;margin:4px 0 4px}.sub{color:var(--muted);font-size:13px;margin-bottom:0}
+.connectbox{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0}
+.connectbox button{white-space:nowrap;padding:10px 12px}
+@media(max-width:420px){h1{font-size:21px}.connectbox button{font-size:13px;padding:9px 10px}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.temp{font-size:54px;font-weight:700;letter-spacing:-2px}.unit{font-size:20px;color:var(--muted)}
+.pill{padding:7px 11px;border-radius:99px;background:#263b52;color:var(--muted);font-size:13px}
+.pill.ok{color:#092d20;background:#7ce4b8}.pill.bad{color:#4a1111;background:#ff9999}
+button,select,input{font:inherit;border-radius:11px;border:1px solid var(--line);padding:12px;background:#142236;color:var(--text)}
+button{cursor:pointer;font-weight:650}button.primary{background:#167db8;border-color:#167db8}button.stop{background:#7e3038;border-color:#a84c55}
+button:disabled{opacity:.4;cursor:not-allowed}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;color:var(--muted);font-size:13px;margin:12px 0 6px}
+input[type=number],select{width:100%}
+input[type=range]{width:100%;padding:0;accent-color:var(--accent)}
+.value{font-size:20px;font-weight:700}
+.small{font-size:13px;color:var(--muted);line-height:1.5}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.kv>div{background:#142236;border-radius:12px;padding:12px}
+.kv strong{display:block;font-size:18px;margin-top:4px}
+canvas{width:100%;height:170px;background:#142236;border-radius:12px}
+hr{border:0;border-top:1px solid var(--line);margin:15px 0}
+#message{white-space:pre-wrap;color:var(--muted);font-size:13px;margin-top:10px}
+@media(max-width:420px){.temp{font-size:46px}.controls{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <div><h1>Yogurt Controller</h1><div class="sub">ESP32-C3 · Bluetooth LE · PID temperature control</div></div>
+    <div class="connectbox"><button id="connect" class="primary">Kết nối BLE</button><span class="pill" id="bleState">Chưa kết nối</span></div>
+  </div>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <div class="small">Nhiệt độ cảm biến DS18B20</div>
+        <div><span class="temp" id="temp">--.-</span><span class="unit"> °C</span></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span class="small">Trạng thái: <b id="runState">Dừng</b></span>
+      <span class="pill" id="faultState">Không có lỗi</span>
+    </div>
+    <div class="kv">
+      <div><span class="small">Đèn gia nhiệt 75W</span><strong id="heater">OFF</strong></div>
+      <div><span class="small">Quạt tuần hoàn</span><strong id="fan">OFF</strong></div>
+      <div><span class="small">PID output</span><strong id="output">0%</strong></div>
+      <div><span class="small">Thời gian còn lại</span><strong id="remaining">--:--:--</strong></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row"><b>Cài đặt</b><span class="small">Chỉ thay đổi khi máy đang dừng</span></div>
+    <label for="setpoint">Nhiệt độ mục tiêu</label>
+    <div class="row"><input id="setpoint" type="range" min="35" max="45" step="0.5" value="42"><span class="value" id="setpointVal">42.0°C</span></div>
+
+    <label for="mode">Chế độ hoạt động</label>
+    <select id="mode">
+      <option value="TIMED">Hẹn giờ (1–24 giờ)</option>
+      <option value="MANUAL">Thủ công (chạy liên tục)</option>
+    </select>
+
+    <label for="duration">Thời gian ủ</label>
+    <select id="duration">
+      <option value="1">1 giờ</option><option value="2">2 giờ</option><option value="3">3 giờ</option>
+      <option value="4">4 giờ</option><option value="5">5 giờ</option><option value="6">6 giờ</option>
+      <option value="7">7 giờ</option><option value="8" selected>8 giờ</option><option value="9">9 giờ</option>
+      <option value="10">10 giờ</option><option value="11">11 giờ</option><option value="12">12 giờ</option>
+      <option value="13">13 giờ</option><option value="14">14 giờ</option><option value="15">15 giờ</option>
+      <option value="16">16 giờ</option><option value="17">17 giờ</option><option value="18">18 giờ</option>
+      <option value="19">19 giờ</option><option value="20">20 giờ</option><option value="21">21 giờ</option>
+      <option value="22">22 giờ</option><option value="23">23 giờ</option><option value="24">24 giờ</option>
+    </select>
+    <hr>
+    <div class="row"><b>Hiệu chỉnh PID</b><span class="small">Chỉ chỉnh khi máy đang dừng</span></div>
+    <div class="controls">
+      <div><label for="kp">Kp (1–100)</label><input id="kp" type="number" min="1" max="100" step="0.5" value="35"></div>
+      <div><label for="ki">Ki (0–5)</label><input id="ki" type="number" min="0" max="5" step="0.01" value="0.45"></div>
+      <div><label for="kd">Kd (0–20)</label><input id="kd" type="number" min="0" max="20" step="0.01" value="0"></div>
+    </div>
+    <div class="small">Giá trị ban đầu: Kp = 35.00, Ki = 0.450, Kd = 0.000. Chỉ thay đổi từng thông số nhỏ sau khi thử nghiệm có giám sát.</div>
+    <div class="controls" style="margin-top:15px">
+      <button id="apply" class="primary" disabled>Gửi cài đặt</button>
+      <button id="resetFault" disabled>Xóa lỗi</button>
+    </div>
+    <hr>
+    <div class="controls">
+      <button id="start" class="primary" disabled>START</button>
+      <button id="stop" class="stop" disabled>STOP</button>
+    </div>
+    <div id="message">Kết nối Bluetooth để bắt đầu.</div>
+  </section>
+
+  <section class="card">
+    <div class="row"><b>Biểu đồ nhiệt độ</b><span class="small">Cập nhật mỗi giây</span></div>
+    <canvas id="chart" width="640" height="220"></canvas>
+    <div class="small" style="margin-top:8px">Biểu đồ hiển thị nhiệt độ đọc từ DS18B20 trong hũ nước đại diện, không phải nhiệt độ không khí trong buồng.</div>
+  </section>
+  <div class="small">Lưu ý: Bluefy cần mở trang này qua HTTPS để sử dụng Web Bluetooth. Mất kết nối điện thoại không làm dừng chương trình đang chạy trên ESP32.</div>
+</main>
+
+<script>
+const SERVICE = "12345678-1234-1234-1234-123456789000";
+const UUID_COMMAND = "12345678-1234-1234-1234-123456789001";
+const UUID_TEMP = "12345678-1234-1234-1234-123456789002";
+const UUID_SETTINGS = "12345678-1234-1234-1234-123456789003";
+const UUID_STATUS = "12345678-1234-1234-1234-123456789004";
+
+let device, server, commandChar, tempChar, settingsChar, statusChar;
+let isRunning = false;
+let points = [];
+const $ = id => document.getElementById(id);
+
+function say(msg){ $("message").textContent = msg; }
+function setConnected(on){
+  $("bleState").textContent = on ? "Đã kết nối" : "Chưa kết nối";
+  $("bleState").className = on ? "pill ok" : "pill";
+  ["apply","resetFault","start","stop"].forEach(id => $(id).disabled = !on);
+}
+async function writeCommand(command){
+  if(!commandChar) throw new Error("Chưa kết nối BLE");
+  const bytes = new TextEncoder().encode(command);
+  if(commandChar.writeValueWithResponse) await commandChar.writeValueWithResponse(bytes);
+  else await commandChar.writeValue(bytes);
+}
+function formatTime(sec){
+  sec = Math.max(0, Number(sec)||0);
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return [h,m,s].map(v=>String(v).padStart(2,"0")).join(":");
+}
+function updateStatus(o){
+  if(!o) return;
+  isRunning = !!o.running;
+  $("runState").textContent = isRunning ? (o.timerStarted ? "Đang ủ – đã tính giờ" : "Đang gia nhiệt/ổn định") : "Dừng";
+  $("heater").textContent = o.heater ? "ON" : "OFF";
+  $("fan").textContent = o.fan ? "ON" : "OFF";
+  $("output").textContent = Number(o.outputPct||0).toFixed(1)+"%";
+  $("remaining").textContent = (o.remainingSec > 0) ? formatTime(o.remainingSec) : (isRunning ? "Thủ công" : "--:--:--");
+  $("faultState").textContent = o.fault ? ("Lỗi: "+(o.faultText||"Không rõ")) : "Không có lỗi";
+  $("faultState").className = o.fault ? "pill bad" : "pill ok";
+  $("start").disabled = !commandChar || isRunning || !!o.fault;
+  $("stop").disabled = !commandChar || !isRunning;
+  $("apply").disabled = !commandChar || isRunning;
+  $("resetFault").disabled = !commandChar || !o.fault;
+}
+function updateSettings(o){
+  if(!o) return;
+  $("setpoint").value = o.setpoint;
+  $("setpointVal").textContent = Number(o.setpoint).toFixed(1)+"°C";
+  $("mode").value = o.mode;
+  $("duration").value = String(o.durationHours);
+  if(o.kp !== undefined) $("kp").value = Number(o.kp).toFixed(2);
+  if(o.ki !== undefined) $("ki").value = Number(o.ki).toFixed(3);
+  if(o.kd !== undefined) $("kd").value = Number(o.kd).toFixed(3);
+}
+function addTemp(t){
+  if(!Number.isFinite(t)) return;
+  $("temp").textContent = t.toFixed(2);
+  points.push(t);
+  if(points.length>180) points.shift();
+  drawChart();
+}
+function drawChart(){
+  const c=$("chart"),ctx=c.getContext("2d"),w=c.width,h=c.height;
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle="#30445e";ctx.lineWidth=1;
+  for(let i=0;i<5;i++){let y=12+i*(h-24)/4;ctx.beginPath();ctx.moveTo(36,y);ctx.lineTo(w-8,y);ctx.stroke();}
+  if(points.length<2)return;
+  const min=Math.min(30,...points)-1,max=Math.max(46,...points)+1;
+  ctx.strokeStyle="#61c4ff";ctx.lineWidth=3;ctx.beginPath();
+  points.forEach((v,i)=>{const x=36+i*(w-48)/(Math.max(1,points.length-1));const y=h-12-(v-min)*(h-24)/(max-min);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});
+  ctx.stroke();
+  ctx.fillStyle="#a8b8cc";ctx.font="12px sans-serif";
+  ctx.fillText(max.toFixed(1)+"°",4,15);ctx.fillText(min.toFixed(1)+"°",4,h-5);
+}
+async function connect(){
+  try{
+    if(!navigator.bluetooth){say("Trình duyệt chưa hỗ trợ Web Bluetooth. Hãy mở bằng Bluefy trên iPhone.");return;}
+    device = await navigator.bluetooth.requestDevice({filters:[{name:"YOGURT_ESP32"}],optionalServices:[SERVICE]});
+    device.addEventListener("gattserverdisconnected",()=>{
+      commandChar=null;setConnected(false);say("Mất kết nối BLE. Máy ESP32 vẫn tiếp tục điều khiển tại chỗ nếu đang chạy.");
+    });
+    server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE);
+    commandChar = await service.getCharacteristic(UUID_COMMAND);
+    tempChar = await service.getCharacteristic(UUID_TEMP);
+    settingsChar = await service.getCharacteristic(UUID_SETTINGS);
+    statusChar = await service.getCharacteristic(UUID_STATUS);
+
+    await tempChar.startNotifications();
+    await settingsChar.startNotifications();
+    await statusChar.startNotifications();
+
+    tempChar.addEventListener("characteristicvaluechanged",e=>{
+      const v=new TextDecoder().decode(e.target.value).trim();
+      const t=parseFloat(v); if(Number.isFinite(t))addTemp(t);
+    });
+    settingsChar.addEventListener("characteristicvaluechanged",e=>{
+      try{updateSettings(JSON.parse(new TextDecoder().decode(e.target.value)));}catch(err){}
+    });
+    statusChar.addEventListener("characteristicvaluechanged",e=>{
+      try{updateStatus(JSON.parse(new TextDecoder().decode(e.target.value)));}catch(err){}
+    });
+
+    setConnected(true);
+    const [tv,sv,st] = await Promise.all([tempChar.readValue(),settingsChar.readValue(),statusChar.readValue()]);
+    const t=parseFloat(new TextDecoder().decode(tv).trim());if(Number.isFinite(t))addTemp(t);
+    updateSettings(JSON.parse(new TextDecoder().decode(sv)));
+    updateStatus(JSON.parse(new TextDecoder().decode(st)));
+    say("Đã kết nối với "+device.name);
+  }catch(err){say("Không kết nối được: "+err.message);}
+}
+
+$("connect").addEventListener("click", connect);
+$("setpoint").addEventListener("input",e=>$("setpointVal").textContent=Number(e.target.value).toFixed(1)+"°C");
+$("apply").addEventListener("click",async()=>{
+  try{
+    await writeCommand("SETPOINT:"+Number($("setpoint").value).toFixed(1));
+    await writeCommand("MODE:"+$("mode").value);
+    await writeCommand("DURATION:"+$("duration").value);
+    const kp = Number($("kp").value), ki = Number($("ki").value), kd = Number($("kd").value);
+    if(!Number.isFinite(kp) || kp < 1 || kp > 100) throw new Error("Kp phải từ 1 đến 100");
+    if(!Number.isFinite(ki) || ki < 0 || ki > 5) throw new Error("Ki phải từ 0 đến 5");
+    if(!Number.isFinite(kd) || kd < 0 || kd > 20) throw new Error("Kd phải từ 0 đến 20");
+    await writeCommand("KP:"+kp.toFixed(2));
+    await writeCommand("KI:"+ki.toFixed(3));
+    await writeCommand("KD:"+kd.toFixed(3));
+    say("Đã gửi cài đặt nhiệt độ, thời gian và PID.");
+  }catch(e){say("Lỗi gửi cài đặt: "+e.message);}
+});
+$("start").addEventListener("click",async()=>{
+  try{await writeCommand("START");say("Đã gửi lệnh START.");}catch(e){say(e.message);}
+});
+$("stop").addEventListener("click",async()=>{
+  try{await writeCommand("STOP");say("Đã gửi lệnh STOP.");}catch(e){say(e.message);}
+});
+$("resetFault").addEventListener("click",async()=>{
+  try{await writeCommand("RESETFAULT");say("Đã gửi lệnh xóa lỗi. Kiểm tra trạng thái trước khi khởi động lại.");}catch(e){say(e.message);}
+});
+setConnected(false);
+</script>
+</body>
+</html>
