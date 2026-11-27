@@ -121,6 +121,7 @@ const UUID_STATUS = "12345678-1234-1234-1234-123456789004";
 
 let device, server, commandChar, tempChar, settingsChar, statusChar;
 let isRunning = false;
+let settingsDirty = false;
 let points = [];
 const $ = id => document.getElementById(id);
 
@@ -129,6 +130,7 @@ function setConnected(on){
   $("bleState").textContent = on ? "Đã kết nối" : "Chưa kết nối";
   $("bleState").className = on ? "pill ok" : "pill";
   ["apply","resetFault","start","stop"].forEach(id => $(id).disabled = !on);
+  ["setpoint","mode","duration","kp","ki","kd"].forEach(id => $(id).disabled = !on || isRunning);
 }
 async function writeCommand(command){
   if(!commandChar) throw new Error("Chưa kết nối BLE");
@@ -154,11 +156,14 @@ function updateStatus(o){
   $("start").disabled = !commandChar || isRunning || !!o.fault;
   $("stop").disabled = !commandChar || !isRunning;
   $("apply").disabled = !commandChar || isRunning;
+  ["setpoint","mode","duration","kp","ki","kd"].forEach(id=>{
+    $(id).disabled = !commandChar || isRunning;
+  });
   $("resetFault").disabled = !commandChar || !o.fault;
 }
 function updateSettings(o){
-  if(!o) return;
-  $("setpoint").value = o.setpoint;
+  if(!o || settingsDirty) return; // Do not overwrite values currently being edited.
+  $("setpoint").value = Number(o.setpoint);
   $("setpointVal").textContent = Number(o.setpoint).toFixed(1)+"°C";
   $("mode").value = o.mode;
   $("duration").value = String(o.durationHours);
@@ -218,6 +223,7 @@ async function connect(){
     setConnected(true);
     const [tv,sv,st] = await Promise.all([tempChar.readValue(),settingsChar.readValue(),statusChar.readValue()]);
     const t=parseFloat(new TextDecoder().decode(tv).trim());if(Number.isFinite(t))addTemp(t);
+    settingsDirty = false;
     updateSettings(JSON.parse(new TextDecoder().decode(sv)));
     updateStatus(JSON.parse(new TextDecoder().decode(st)));
     say("Đã kết nối với "+device.name);
@@ -237,19 +243,39 @@ $("setpoint").addEventListener("input",e=>{
   $("setpointVal").textContent=Number(e.target.value).toFixed(1)+"°C";
 });
 $("apply").addEventListener("click",async()=>{
+  if(!commandChar) { say("Chưa kết nối BLE."); return; }
+  if(isRunning) { say("Hãy nhấn STOP trước khi thay đổi cài đặt."); return; }
+  const sp = Number($("setpoint").value);
+  const duration = Number($("duration").value);
+  const kp = Number($("kp").value), ki = Number($("ki").value), kd = Number($("kd").value);
+  if(!Number.isFinite(sp) || sp < 35 || sp > 45) { say("Nhiệt độ mục tiêu phải từ 35 đến 45°C."); return; }
+  if(!Number.isFinite(kp) || kp < 1 || kp > 100) { say("Kp phải từ 1 đến 100."); return; }
+  if(!Number.isFinite(ki) || ki < 0 || ki > 5) { say("Ki phải từ 0 đến 5."); return; }
+  if(!Number.isFinite(kd) || kd < 0 || kd > 20) { say("Kd phải từ 0 đến 20."); return; }
   try{
-    await writeCommand("SETPOINT:"+Number($("setpoint").value).toFixed(1));
+    $("apply").disabled = true;
+    say("Đang gửi cài đặt xuống ESP32...");
+    await writeCommand("SETPOINT:"+sp.toFixed(1));
     await writeCommand("MODE:"+$("mode").value);
-    await writeCommand("DURATION:"+$("duration").value);
-    const kp = Number($("kp").value), ki = Number($("ki").value), kd = Number($("kd").value);
-    if(!Number.isFinite(kp) || kp < 1 || kp > 100) throw new Error("Kp phải từ 1 đến 100");
-    if(!Number.isFinite(ki) || ki < 0 || ki > 5) throw new Error("Ki phải từ 0 đến 5");
-    if(!Number.isFinite(kd) || kd < 0 || kd > 20) throw new Error("Kd phải từ 0 đến 20");
+    await writeCommand("DURATION:"+duration);
     await writeCommand("KP:"+kp.toFixed(2));
     await writeCommand("KI:"+ki.toFixed(3));
     await writeCommand("KD:"+kd.toFixed(3));
-    say("Đã gửi cài đặt nhiệt độ, thời gian và PID.");
-  }catch(e){say("Lỗi gửi cài đặt: "+e.message);}
+    // Read back the actual values stored by the ESP32 rather than trusting the UI.
+    await new Promise(resolve=>setTimeout(resolve,250));
+    const raw = await settingsChar.readValue();
+    const actual = JSON.parse(new TextDecoder().decode(raw));
+    settingsDirty = false;
+    updateSettings(actual);
+    const accepted = Math.abs(Number(actual.setpoint)-sp) < 0.06 &&
+      actual.mode === $("mode").value && Number(actual.durationHours) === duration &&
+      Math.abs(Number(actual.kp)-kp) < 0.011 &&
+      Math.abs(Number(actual.ki)-ki) < 0.0011 &&
+      Math.abs(Number(actual.kd)-kd) < 0.0011;
+    say(accepted ? "ESP32 đã nhận và lưu các cài đặt." :
+      "ESP32 chưa nhận đủ cài đặt. Giá trị thực tế: " + JSON.stringify(actual));
+  }catch(e){say("Lỗi gửi/đọc lại cài đặt: "+e.message);}
+  finally { $("apply").disabled = !commandChar || isRunning; }
 });
 $("start").addEventListener("click",async()=>{
   try{await writeCommand("START");say("Đã gửi lệnh START.");}catch(e){say(e.message);}
